@@ -1,0 +1,256 @@
+<!--
+  Custom Wazuh detection rules — SOC & NGFW Home Lab
+  IDs 100xxx, mapped to MITRE ATT&CK where applicable.
+  Status notes per group indicate what was actually confirmed during testing
+  vs. written but not yet validated against a live attack. See README.md
+  for full context (confirmed detection counts, screenshots, etc).
+-->
+
+<!-- =============================== -->
+<!-- Windows Authentication Rules    -->
+<!-- Status: written for a Windows endpoint; the Windows VM was later  -->
+<!-- removed for disk space, so these are untested against a live agent -->
+<!-- =============================== -->
+<group name="windows,authentication,">
+
+  <!-- Failed Windows Login -->
+  <rule id="100514" level="6">
+    <if_sid>60137</if_sid>
+    <description>Windows login failed</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <!-- Successful Windows Login -->
+  <rule id="100502" level="4">
+    <if_sid>60106</if_sid>
+    <description>Windows login succeeded</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,</group>
+  </rule>
+
+</group>
+
+<!-- =============================== -->
+<!-- SSH Authentication Rules        -->
+<!-- Status: brute-force correlation (100501) reported as firing during -->
+<!-- Hydra testing against the Metasploitable2 host                     -->
+<!-- =============================== -->
+<group name="sshd,authentication,">
+
+  <!-- Single SSH failure -->
+  <rule id="100500" level="5">
+    <if_group>sshd</if_group>
+    <match>Failed password</match>
+    <description>SSH failed login attempt</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <!-- SSH brute force: 5 failures in 2 minutes -->
+  <rule id="100501" level="10" frequency="5" timeframe="120">
+    <if_matched_sid>100500</if_matched_sid>
+    <description>SSH brute force attack: multiple failed logins from same source</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failures,brute_force,</group>
+  </rule>
+
+</group>
+
+<!-- =============================== -->
+<!-- File Integrity Monitoring (FIM) -->
+<!-- Status: written, not confirmed against a live attack in this test  -->
+<!-- window (see README "Possible improvements")                        -->
+<!-- =============================== -->
+<group name="syscheck,fim,">
+
+  <rule id="100700" level="7">
+    <if_sid>550</if_sid>
+    <description>File added to monitored directory: $(syscheck.path) on agent $(agent.name)</description>
+    <mitre>
+      <id>T1105</id>
+    </mitre>
+    <group>file_added,malware_detection,</group>
+  </rule>
+
+  <rule id="100702" level="12">
+    <if_sid>100700</if_sid>
+    <match>/tmp/|/var/tmp/|/dev/shm/</match>
+    <description>File added in suspicious location: $(syscheck.path) on agent $(agent.name)</description>
+    <mitre>
+      <id>T1105</id>
+    </mitre>
+    <group>file_added,suspicious_location,malware_detection,</group>
+  </rule>
+
+  <rule id="100553" level="12">
+    <if_sid>553</if_sid>
+    <description>Critical file deleted: $(syscheck.path) on agent $(agent.name)</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>file_deleted,malware_detection,</group>
+  </rule>
+
+</group>
+
+<!-- =============================== -->
+<!-- Auditd Execution & Malware       -->
+<!-- Status: written, not confirmed against a live attack in this test  -->
+<!-- window (see README "Possible improvements")                        -->
+<!-- =============================== -->
+<group name="audit,malware_detection,">
+
+  <rule id="100703" level="15">
+    <if_group>audit</if_group>
+    <field name="audit.key">tmp_execution</field>
+    <description>File executed in suspicious directory: $(audit.file.name) by user $(audit.auid) on $(hostname)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>execution,malware_detection,suspicious_location,</group>
+  </rule>
+
+  <rule id="100801" level="13">
+    <if_sid>52502</if_sid>
+    <description>ClamAV: Malware detected - $(data.extra_data) at $(data.url) on agent $(agent.name)</description>
+    <mitre>
+      <id>T1105</id>
+    </mitre>
+    <group>malware_detection,virus,</group>
+  </rule>
+
+</group>
+
+<!-- =============================== -->
+<!-- Palo Alto Firewall Rules         -->
+<!-- Status: 100905 (scanning/probing) CONFIRMED - 1,439 hits over a    -->
+<!-- 7-day test window. App-ID block rules confirmed directly in Palo   -->
+<!-- Alto traffic logs; not separately re-verified as Wazuh alerts.     -->
+<!-- =============================== -->
+<group name="paloalto,firewall,">
+
+  <!-- Alert specifically when the App-ID block rule fires -->
+  <rule id="100900" level="10">
+    <if_sid>64508</if_sid>
+    <field name="rule_name">LAN2WAN-block-apps</field>
+    <description>Blocked high-risk application via App-ID: $(application) from $(source_address) to $(destination_address)</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+    <group>application_control,policy_violation,</group>
+  </rule>
+
+  <!-- Alert on repeated blocks from same source = possible probing/policy testing -->
+  <rule id="100901" level="12" frequency="3" timeframe="120">
+    <if_matched_sid>100900</if_matched_sid>
+    <description>Repeated App-ID blocked application attempts from $(source_address) - possible policy evasion attempt</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+    <group>application_control,repeated_violation,</group>
+  </rule>
+
+  <!-- Alert on unknown-tcp/udp blocks (catch-all rule) -->
+  <rule id="100902" level="8">
+    <if_sid>64508</if_sid>
+    <field name="rule_name">Block-Unknown-Apps</field>
+    <description>Unidentified application traffic blocked: $(source_address) to $(destination_address):$(destination_port)</description>
+    <mitre>
+      <id>T1571</id>
+    </mitre>
+    <group>application_control,unknown_traffic,</group>
+  </rule>
+
+  <rule id="100904" level="8">
+    <if_sid>64508</if_sid>
+    <field name="rule_name">Block-quic</field>
+    <description>Blocked QUIC protocol traffic: $(source_address) to $(destination_address)</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+    <group>application_control,protocol_block,</group>
+  </rule>
+
+  <!-- CONFIRMED: 1,439 hits over a 7-day test window -->
+  <rule id="100905" level="10" frequency="5" timeframe="60">
+    <if_matched_sid>64508</if_matched_sid>
+    <same_field>source_address</same_field>
+    <description>Multiple denied connections from $(source_address) in short window - possible policy violation or scanning activity</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>attack,recon,policy_violation,</group>
+  </rule>
+
+</group>
+
+<!-- =============================== -->
+<!-- Privilege Escalation Rules      -->
+<!-- Status: written, not confirmed against a live attack in this test  -->
+<!-- window (see README "Possible improvements")                        -->
+<!-- =============================== -->
+<group name="sudo,privilege_escalation,">
+
+  <!-- Sudo used to spawn a shell -->
+  <rule id="100008" level="10">
+    <if_sid>5400</if_sid>
+    <match>COMMAND=/bin/bash|COMMAND=/bin/sh|COMMAND=/usr/bin/bash</match>
+    <description>User $(srcuser) used sudo to spawn shell on $(hostname) - Privilege escalation attempt</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>attack,privilege_escalation,audit,</group>
+  </rule>
+
+  <!-- Sudo used to execute su -->
+  <rule id="100009" level="10">
+    <if_sid>5400</if_sid>
+    <match>COMMAND=/bin/su|COMMAND=/usr/bin/su</match>
+    <description>User $(srcuser) used sudo to execute su on $(hostname) - Privilege escalation attempt</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>attack,privilege_escalation,audit,</group>
+  </rule>
+
+  <!-- Multiple failed sudo attempts -->
+  <rule id="100010" level="8" frequency="2" timeframe="300">
+    <if_matched_sid>5401</if_matched_sid>
+    <description>User $(srcuser) has multiple failed sudo attempts on $(hostname) - Possible brute force escalation</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>attack,privilege_escalation,audit,</group>
+  </rule>
+
+  <!-- Unauthorized user repeated sudo attempts -->
+  <rule id="100012" level="8" frequency="2" timeframe="300">
+    <if_matched_sid>5405</if_matched_sid>
+    <description>Unauthorized user $(srcuser) repeated sudo attempts on $(hostname) - Possible brute force escalation</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>attack,privilege_escalation,audit,</group>
+  </rule>
+
+  <!-- Sudo with GTFOBins binaries -->
+  <rule id="100011" level="10">
+    <if_sid>5400</if_sid>
+    <match>COMMAND=/usr/bin/python|COMMAND=/usr/bin/perl|COMMAND=/usr/bin/env|COMMAND=/bin/vi|COMMAND=/usr/bin/find</match>
+    <description>User $(srcuser) used sudo with GTFOBins binary on $(hostname) - Privilege escalation attempt</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>attack,privilege_escalation,audit,</group>
+  </rule>
+
+</group>
