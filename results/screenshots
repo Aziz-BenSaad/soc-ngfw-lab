@@ -1,1 +1,28 @@
+# Detection Results
 
+Screenshots backing up the detections and exploits described in the main [README](../README.md).
+
+## Scan / probing detection — confirmed
+
+Rule `100905` fired **1,439 times** over a 7-day window, correlating repeated firewall denies into a single higher-severity alert.
+
+![Rule 100905 flagged](../screenshots/rule-100905-flagged.png)
+
+## SSH brute force (Hydra)
+
+Correct credential wasn't in either wordlist, so the account wasn't cracked, but the attempt generated the failed-login traffic rule `100501` is built to catch.
+
+![Hydra brute force attempt](../screenshots/hydra-attempt.png)
+
+## Exploitation — Metasploitable2 (root shell x3)
+
+**Samba usermap_script**
+![Samba exploit root shell](../screenshots/samba-exploit.png)
+
+**UnrealIRCd backdoor**
+![UnrealIRCd exploit root shell](../screenshots/unreal-exploit.png)
+
+**vsftpd 2.3.4 backdoor**
+![vsftpd exploit root shell](../screenshots/vsftpd-exploit.png)
+
+Whether these three exploits triggered any Wazuh alert wasn't checked at the time — open item, see README "Possible improvements."
